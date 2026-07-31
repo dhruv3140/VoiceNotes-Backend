@@ -1,45 +1,44 @@
 import os
-import smtplib
-import requests
-from email.message import EmailMessage
+import resend
 from dotenv import load_dotenv
 from utils.sms_service import send_sms_via_gateway
+
+load_dotenv(override=True)
+resend.api_key = os.getenv("RESEND_API_KEY")
+
 async def send_email_otp(to_email: str, otp: str):
-    load_dotenv(override=True)
-    email_user = os.getenv("EMAIL_USER", "").strip()
-    email_password = os.getenv("EMAIL_PASSWORD", "").strip()
-    email_host = os.getenv("EMAIL_HOST", "smtp.gmail.com")
-    email_port = int(os.getenv("EMAIL_PORT", 587))
-
     print(f"Email OTP for {to_email}: {otp}")
-    print("EMAIL_USER:", email_user)
-    print("EMAIL_PASSWORD LENGTH:", len(email_password) if email_password else 0)
+    
+    if not resend.api_key:
+        print("Error: RESEND_API_KEY is missing in environment variables.")
+        return
 
-    if not email_user or not email_password:
-        raise ValueError("EMAIL_USER or EMAIL_PASSWORD environment variable is missing in the backend .env file.")
-
-    msg = EmailMessage()
-    msg["Subject"] = "Your Smart Notes OTP" 
-    msg["From"] = email_user
-    msg["To"] = to_email
-    msg.set_content(f"Your Smart Notes OTP is: {otp}")
     try:
-        with smtplib.SMTP(email_host, email_port) as server:
-            server.starttls()
-            server.login(email_user, email_password)
-            server.send_message(msg)
-        print("Email sent successfully")
+        params = {
+            "from": "Smart Notes <onboarding@resend.dev>",  # Free tier ke liye default domain
+            "to": [to_email],
+            "subject": "Your Smart Notes OTP",
+            "html": f"""
+                <div style="font-family: Arial, sans-serif; padding: 20px;">
+                    <h2>Welcome to Smart Notes!</h2>
+                    <p>Your OTP for verification is:</p>
+                    <h1 style="color: #4F46E5; letter-spacing: 2px;">{otp}</h1>
+                    <p>This OTP is valid for 5 minutes.</p>
+                </div>
+            """
+        }
+        
+        response = resend.Emails.send(params)
+        print("Email sent successfully via Resend:", response)
     except Exception as e:
-        print("Email sending failed:", e)
-        raise e
+        print("Resend Email sending failed:", e)
+
 async def send_sms_otp(mobile: str, otp: str, name: str = "User"):
     """
     Sends the OTP via SMS using your Android SMS Gateway service.
     """
-    # Clean up phone number: remove any spaces or dashes
     cleaned_mobile = mobile.strip().replace(" ", "").replace("-", "")
     
-    # If standard 10-digit Indian number without country code, prepend +91
     if len(cleaned_mobile) == 10 and cleaned_mobile.isdigit():
         formatted_mobile = f"+91{cleaned_mobile}"
     elif not cleaned_mobile.startswith("+"):

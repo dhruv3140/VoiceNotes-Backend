@@ -22,7 +22,7 @@ def generate_tags(transcript):
 
 def get_embedding(transcript):
     response = genai.embed_content(
-        model="embedding-001",
+        model="gemini-embedding-2",
         content=transcript,
         task_type="retrieval_document"
     )

@@ -2,7 +2,7 @@ import os
 from datetime import datetime, timedelta
 from dotenv import load_dotenv
 from jose import jwt, JWTError
-from passlib.context import CryptContext
+import bcrypt
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlalchemy.orm import Session
@@ -15,53 +15,42 @@ SECRET_KEY = os.getenv("JWT_SECRET_KEY")
 ALGORITHM = os.getenv("JWT_ALGORITHM", "HS256")
 ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", 1440))
 
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
-
 bearer_scheme = HTTPBearer()
-
-from passlib.context import CryptContext
-
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 def clean_password(password: str):
     if not password:
         raise ValueError("Password cannot be empty")
 
     password = str(password).strip()
+    pwd_bytes = password.encode("utf-8")
 
-    if len(password.encode("utf-8")) > 72:
+    if len(pwd_bytes) > 72:
         raise ValueError("Password cannot be longer than 72 bytes")
 
-    return password
+    return pwd_bytes
 
 def get_password_hash(password: str):
-    password = clean_password(password)
-    return pwd_context.hash(password)
-
+    pwd_bytes = clean_password(password)
+    salt = bcrypt.gensalt()
+    hashed = bcrypt.hashpw(pwd_bytes, salt)
+    return hashed.decode('utf-8')
 
 def verify_password(plain_password: str, hashed_password: str):
-    return pwd_context.verify(plain_password, hashed_password)
+    try:
+        pwd_bytes = clean_password(plain_password)
+        return bcrypt.checkpw(pwd_bytes, hashed_password.encode('utf-8'))
+    except Exception:
+        return False
 
-
+# Backward compatibility alias if needed elsewhere
 def hash_password(password: str):
-    password = clean_password(password)
-    return pwd_context.hash(password)
-
-
-def verify_password(plain_password: str, hashed_password: str):
-    plain_password = clean_password(plain_password)
-    return pwd_context.verify(plain_password, hashed_password)
-
+    return get_password_hash(password)
 
 def create_access_token(data: dict):
     to_encode = data.copy()
-
     expire = datetime.utcnow() + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
-
     to_encode.update({"exp": expire})
-
     return jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
-
 
 def decode_access_token(token: str):
     try:
@@ -70,13 +59,11 @@ def decode_access_token(token: str):
     except JWTError:
         return None
 
-
 def get_current_user(
     credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme),
     db: Session = Depends(get_db)
 ):
     token = credentials.credentials
-
     payload = decode_access_token(token)
 
     if payload is None:

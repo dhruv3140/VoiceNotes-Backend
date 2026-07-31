@@ -223,7 +223,7 @@ async def verify_email_register_otp(data: VerifyEmailOtp, db: Session = Depends(
     return create_user_response(user)
 
 
-@router.post("/mobile/verify-otp")
+router.post("/mobile/verify-otp")
 def verify_mobile_otp(data: VerifyMobileOtp, db: Session = Depends(get_db)):
     user = db.query(User).filter(User.mobile == data.mobile).first()
 
@@ -233,8 +233,14 @@ def verify_mobile_otp(data: VerifyMobileOtp, db: Session = Depends(get_db)):
     if user.otp_code != data.otp:
         raise HTTPException(status_code=400, detail="Invalid OTP")
 
-    if user.otp_expires_at < datetime.now(IST):
-        raise HTTPException(status_code=400, detail="OTP expired")
+    # Fix: Handle naive vs aware datetime comparison safely
+    if user.otp_expires_at:
+        db_expiry = user.otp_expires_at
+        if db_expiry.tzinfo is None:
+            db_expiry = db_expiry.replace(tzinfo=IST)
+        
+        if db_expiry < datetime.now(IST):
+            raise HTTPException(status_code=400, detail="OTP expired")
 
     user.otp_code = None
     user.otp_expires_at = None

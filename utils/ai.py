@@ -8,7 +8,7 @@ load_dotenv()
 genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
 
 def generate_tags(transcript):
-    model = genai.GenerativeModel('gemini-1.5-flash') 
+    model = genai.GenerativeModel('gemini-2.0-flash') 
     prompt = f"""
     You are a strict tagging assistant. Read the voice note (which may be in English or Hinglish). 
     Output EXACTLY one or two unique relevant tag. Your response must ONLY be a comma-separated list. 

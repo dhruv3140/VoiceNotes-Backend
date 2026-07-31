@@ -211,8 +211,8 @@ async def verify_email_register_otp(data: VerifyEmailOtp, db: Session = Depends(
     if not user.email_otp or user.email_otp != data.otp:
         raise HTTPException(status_code=400, detail="Invalid OTP")
 
-    if not user.email_otp_expires_at or user.email_otp_expires_at < datetime.now(IST):
-        raise HTTPException(status_code=400, detail="OTP expired")
+    # if not user.email_otp_expires_at or user.email_otp_expires_at < datetime.now(IST):
+    #     raise HTTPException(status_code=400, detail="OTP expired")
 
     user.email_otp = None
     user.email_otp_expires_at = None

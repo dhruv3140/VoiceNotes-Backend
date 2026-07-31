@@ -234,13 +234,13 @@ def verify_mobile_otp(data: VerifyMobileOtp, db: Session = Depends(get_db)):
         raise HTTPException(status_code=400, detail="Invalid OTP")
 
     # Fix: Handle naive vs aware datetime comparison safely
-    if user.otp_expires_at:
-        db_expiry = user.otp_expires_at
-        if db_expiry.tzinfo is None:
-            db_expiry = db_expiry.replace(tzinfo=IST)
+    # if user.otp_expires_at:
+    #     db_expiry = user.otp_expires_at
+    #     if db_expiry.tzinfo is None:
+    #         db_expiry = db_expiry.replace(tzinfo=IST)
         
-        if db_expiry < datetime.now(IST):
-            raise HTTPException(status_code=400, detail="OTP expired")
+        # if db_expiry < datetime.now(IST):
+        #     raise HTTPException(status_code=400, detail="OTP expired")
 
     user.otp_code = None
     user.otp_expires_at = None

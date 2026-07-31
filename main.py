@@ -83,9 +83,13 @@ def get_notes(current_user: User = Depends(get_current_user)):
     clean_notes = []
 
     for note in notes:
+        # Handle both Pinecone match objects and search hit dictionaries safely
+        note_id = getattr(note, 'id', getattr(note, '_id', note.get('id', note.get('_id'))))
+        metadata = getattr(note, 'metadata', note.get('fields', note))
+        
         clean_notes.append({
-            "id": note.id,
-            "metadata": note.metadata
+            "id": note_id,
+            "metadata": metadata
         })
 
     return {

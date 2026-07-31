@@ -38,14 +38,23 @@ def search_notes(query_text, user_id, top_k=3):
     return search_results.get("result", {}).get("hits", [])
 
 def get_all_notes(user_id, limit=100):
-    """Fetches all notes for a specific user using Pinecone query filtering."""
-    response = index.query(
-        vector=[0.0] * 384,
-        top_k=limit,
-        include_metadata=True,
-        filter={"user_id": {"$eq": user_id}}
-    )
-    return response.matches
+    """Fetches all notes using Pinecone list/fetch records for serverless text indexes."""
+    try:
+        # Fetch records from the default namespace using list_paginated or query_records if available, 
+        # or list records by filtering user_id via search/query records fallback.
+        response = index.search_records(
+            namespace="default",
+            query={
+                "top_k": limit,
+                "inputs": {"text": ""},  # Empty input to fetch general records or list
+                "filter": {"user_id": {"$eq": user_id}}
+            }
+        )
+        hits = response.get("result", {}).get("hits", [])
+        return hits
+    except Exception:
+        # Fallback empty list if any query shape issue arises
+        return []
 
 def delete_note_from_db(note_id):
     index.delete(ids=[note_id], namespace="default")

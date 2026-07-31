@@ -65,9 +65,9 @@ def find_user_by_identifier(identifier: str, db: Session):
     return db.query(User).filter(User.mobile == identifier).first()
 
 @router.post("/register")
-def register(data: UserRegister, db: Session = Depends(get_db)):
+async def register(data: UserRegister, db: Session = Depends(get_db)):
     otp = str(random.randint(100000, 999999))
-    expiry = datetime.utcnow() + timedelta(minutes=5)
+    expiry = datetime.now(IST) + timedelta(minutes=5)
 
     user = db.query(User).filter(User.email == data.email).first()
 
@@ -95,7 +95,7 @@ def register(data: UserRegister, db: Session = Depends(get_db)):
     db.commit()
 
     try:
-        send_email_otp(data.email, otp)
+        await send_email_otp(data.email, otp)
     except Exception as e:
         raise HTTPException(
             status_code=500,
@@ -128,7 +128,7 @@ def login(user: UserLogin, db: Session = Depends(get_db)):
 @router.post("/mobile/send-otp")
 async def send_mobile_otp(data: MobileOtpRequest, db: Session = Depends(get_db)):
     otp = str(random.randint(100000, 999999))
-    expiry = datetime.utcnow() + timedelta(minutes=5)
+    expiry = datetime.now(IST) + timedelta(minutes=5)
 
     user = db.query(User).filter(User.mobile == data.mobile).first()
 
@@ -162,9 +162,9 @@ async def send_mobile_otp(data: MobileOtpRequest, db: Session = Depends(get_db))
 
 
 @router.post("/email/send-otp")
-def send_email_register_otp(data: EmailOtpRequest, db: Session = Depends(get_db)):
+async def send_email_register_otp(data: EmailOtpRequest, db: Session = Depends(get_db)):
     otp = str(random.randint(100000, 999999))
-    expiry = datetime.utcnow() + timedelta(minutes=5)
+    expiry = datetime.now(IST) + timedelta(minutes=5)
 
     user = db.query(User).filter(User.email == data.email).first()
 
@@ -185,7 +185,7 @@ def send_email_register_otp(data: EmailOtpRequest, db: Session = Depends(get_db)
     db.commit()
 
     try:
-        send_email_otp(data.email, otp)
+        await send_email_otp(data.email, otp)
     except Exception as e:
         raise HTTPException(
             status_code=500,
@@ -199,7 +199,7 @@ def send_email_register_otp(data: EmailOtpRequest, db: Session = Depends(get_db)
 
 
 @router.post("/email/verify-otp")
-def verify_email_register_otp(data: VerifyEmailOtp, db: Session = Depends(get_db)):
+async def verify_email_register_otp(data: VerifyEmailOtp, db: Session = Depends(get_db)):
     user = db.query(User).filter(User.email == data.email).first()
 
     if not user:
@@ -208,7 +208,7 @@ def verify_email_register_otp(data: VerifyEmailOtp, db: Session = Depends(get_db
     if not user.email_otp or user.email_otp != data.otp:
         raise HTTPException(status_code=400, detail="Invalid OTP")
 
-    if not user.email_otp_expires_at or user.email_otp_expires_at < datetime.utcnow():
+    if not user.email_otp_expires_at or user.email_otp_expires_at < datetime.now(IST):
         raise HTTPException(status_code=400, detail="OTP expired")
 
     user.email_otp = None
@@ -232,7 +232,7 @@ def verify_mobile_otp(data: VerifyMobileOtp, db: Session = Depends(get_db)):
     if user.otp_code != data.otp:
         raise HTTPException(status_code=400, detail="Invalid OTP")
 
-    if user.otp_expires_at < datetime.utcnow():
+    if user.otp_expires_at < datetime.now(IST):
         raise HTTPException(status_code=400, detail="OTP expired")
 
     user.otp_code = None

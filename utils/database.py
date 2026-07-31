@@ -11,7 +11,7 @@ def get_pinecone_index():
 index = get_pinecone_index()
 
 def save_note(note_id, transcript, tags, user_id, folder_id=None, folder_name="General"):
-    now = datetime.utcnow().isoformat()
+    now = datetime.now(IST).isoformat()
     # Hum vector ki jagah dummy vector ya direct metadata upsert karenge
     storage_object = {
         "id": note_id,
@@ -56,7 +56,7 @@ def delete_note_from_db(note_id):
     index.delete(ids=[note_id], namespace="default")
 
 def update_note_in_db(note_id, new_transcript, new_tags, user_id, folder_id=None, folder_name="General"):
-    now = datetime.utcnow().isoformat()
+    now = datetime.now(IST).isoformat()
     storage_object = {
         "id": note_id,
         "values": [0.1] * 384,

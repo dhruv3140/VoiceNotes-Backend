@@ -223,7 +223,7 @@ async def verify_email_register_otp(data: VerifyEmailOtp, db: Session = Depends(
     return create_user_response(user)
 
 
-router.post("/mobile/verify-otp")
+@router.post("/mobile/verify-otp")
 def verify_mobile_otp(data: VerifyMobileOtp, db: Session = Depends(get_db)):
     user = db.query(User).filter(User.mobile == data.mobile).first()
 

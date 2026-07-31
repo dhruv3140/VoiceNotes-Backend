@@ -2,7 +2,9 @@ from pinecone import Pinecone
 import os
 from dotenv import load_dotenv
 load_dotenv()  
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
+
+IST = timezone(timedelta(hours=5, minutes=30))
 
 def get_pinecone_index():
     pc = Pinecone(api_key=os.getenv("PINECONE_API_KEY"))

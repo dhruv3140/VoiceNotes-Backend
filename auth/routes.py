@@ -1,6 +1,7 @@
 import os
 import random
-from datetime import datetime, timedelta
+from datetime import datetime, timezone, timedelta
+IST = timezone(timedelta(hours=5, minutes=30))
 from .otp_service import send_email_otp, send_sms_otp
 from .schemas import EmailOtpRequest, VerifyEmailOtp
 from .security import get_password_hash, verify_password 

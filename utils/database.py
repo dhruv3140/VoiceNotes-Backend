@@ -37,6 +37,16 @@ def search_notes(query_text, user_id, top_k=3):
     )
     return search_results.get("result", {}).get("hits", [])
 
+def get_all_notes(user_id, limit=100):
+    """Fetches all notes for a specific user using Pinecone query filtering."""
+    response = index.query(
+        vector=[0.0] * 384,
+        top_k=limit,
+        include_metadata=True,
+        filter={"user_id": {"$eq": user_id}}
+    )
+    return response.matches
+
 def delete_note_from_db(note_id):
     index.delete(ids=[note_id], namespace="default")
 

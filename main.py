@@ -45,18 +45,30 @@ def home():
     return {"message": "Backend running"}
 
 @app.post("/notes/text")
-def create_text_note(
-    note: TextNote,
-    current_user: User = Depends(get_current_user)
-):
+def create_text_note(note: TextNote, current_user: User = Depends(get_current_user)):
     text = note.text.strip()
     tags = generate_tags(text)
     note_id = str(uuid.uuid4())
 
-    # Vector parameter hata diya gaya hai
     save_note(note_id, text, tags, current_user.id, note.folder_id, note.folder_name)
-
     return {"success": True, "id": note_id}
+
+@app.get("/notes")
+def get_notes(current_user: User = Depends(get_current_user)):
+    notes = get_all_notes(current_user.id)
+    clean_notes = []
+
+    for note in notes:
+        clean_notes.append({
+            "id": note.id,
+            "metadata": note.metadata
+        })
+
+    return {
+        "success": True,
+        "notes": clean_notes
+    }
+
 
 @app.post("/notes/audio")
 async def create_audio_note(
@@ -77,25 +89,25 @@ async def create_audio_note(
         "transcript": transcript
     }
 
-@app.get("/notes")
-def get_notes(current_user: User = Depends(get_current_user)):
-    notes = get_all_notes(current_user.id)
-    clean_notes = []
+# @app.get("/notes")
+# def get_notes(current_user: User = Depends(get_current_user)):
+#     notes = get_all_notes(current_user.id)
+#     clean_notes = []
 
-    for note in notes:
-        # Handle both Pinecone match objects and search hit dictionaries safely
-        note_id = getattr(note, 'id', getattr(note, '_id', note.get('id', note.get('_id'))))
-        metadata = getattr(note, 'metadata', note.get('fields', note))
+#     for note in notes:
+#         # Handle both Pinecone match objects and search hit dictionaries safely
+#         note_id = getattr(note, 'id', getattr(note, '_id', note.get('id', note.get('_id'))))
+#         metadata = getattr(note, 'metadata', note.get('fields', note))
         
-        clean_notes.append({
-            "id": note_id,
-            "metadata": metadata
-        })
+#         clean_notes.append({
+#             "id": note_id,
+#             "metadata": metadata
+#         })
 
-    return {
-        "success": True,
-        "notes": clean_notes
-    }
+#     return {
+#         "success": True,
+#         "notes": clean_notes
+#     }
 
 @app.post("/notes/search")
 def search_note(query: SearchQuery, current_user: User = Depends(get_current_user)):

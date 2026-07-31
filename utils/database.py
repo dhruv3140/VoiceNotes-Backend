@@ -9,74 +9,52 @@ def get_pinecone_index():
     return pc.Index(os.getenv("PINECONE_INDEX_NAME"))
 
 index = get_pinecone_index()
+
 def save_note(note_id, transcript, tags, user_id, folder_id=None, folder_name="General"):
     now = datetime.utcnow().isoformat()
-
-    record = {
-        "_id": note_id,
-        "text": transcript,
-        "tags": tags,
-        "user_id": user_id,
-        "folder_id": folder_id if folder_id else 0,
-        "folder_name": folder_name or "General",
-        "created_at": now,
-        "updated_at": now
-    }
-
-    # namespace ko "default" kar dein ya hata dein
-    index.upsert_records(namespace="default", records=[record])
-
-def search_notes(query_text, user_id, top_k=3):
-    search_results = index.search_records(
-        namespace="default",
-        query={
-            "top_k": top_k,
-            "inputs": {"text": query_text},
-            "filter": {"user_id": {"$eq": user_id}}
+    # Hum vector ki jagah dummy vector ya direct metadata upsert karenge
+    storage_object = {
+        "id": note_id,
+        "values": [0.1] * 384,  # Dummy stable vector taaki Pinecone index khush rahe
+        "metadata": {
+            "transcript": transcript,
+            "tags": tags,
+            "user_id": user_id,
+            "folder_id": folder_id if folder_id else 0,
+            "folder_name": folder_name or "General",
+            "created_at": now,
+            "updated_at": now
         }
-    )
-    return search_results.get("result", {}).get("hits", [])
+    }
+    index.upsert(vectors=[storage_object], namespace="default")
 
 def get_all_notes(user_id, limit=100):
-    """Fetches all notes using Pinecone list/fetch records for serverless text indexes."""
-    try:
-        # Fetch records from the default namespace using list_paginated or query_records if available, 
-        # or list records by filtering user_id via search/query records fallback.
-        response = index.search_records(
-            namespace="default",
-            query={
-                "top_k": limit,
-                "inputs": {"text": ""},  # Empty input to fetch general records or list
-                "filter": {"user_id": {"$eq": user_id}}
-            }
-        )
-        hits = response.get("result", {}).get("hits", [])
-        return hits
-    except Exception:
-        # Fallback empty list if any query shape issue arises
-        return []
+    # Dummy vector se query karne par user ke saare notes metadata ke sath mil jayenge
+    dummy_vector = [0.1] * 384
+    response = index.query(
+        vector=dummy_vector,
+        top_k=limit,
+        include_metadata=True,
+        filter={"user_id": {"$eq": user_id}},
+        namespace="default"
+    )
+    return response.matches
 
 def delete_note_from_db(note_id):
     index.delete(ids=[note_id], namespace="default")
 
-def update_note_in_db(
-    note_id,
-    new_transcript,
-    new_tags,
-    user_id,
-    folder_id=None,
-    folder_name="General"
-):
+def update_note_in_db(note_id, new_transcript, new_tags, user_id, folder_id=None, folder_name="General"):
     now = datetime.utcnow().isoformat()
-    
-    record = {
-        "_id": note_id,
-        "text": new_transcript,
-        "tags": new_tags,
-        "user_id": user_id,
-        "folder_id": folder_id if folder_id else 0,
-        "folder_name": folder_name or "General",
-        "updated_at": now
+    storage_object = {
+        "id": note_id,
+        "values": [0.1] * 384,
+        "metadata": {
+            "transcript": new_transcript,
+            "tags": new_tags,
+            "user_id": user_id,
+            "folder_id": folder_id if folder_id else 0,
+            "folder_name": folder_name or "General",
+            "updated_at": now
+        }
     }
-
-    index.upsert_records(namespace="default", records=[record])
+    index.upsert(vectors=[storage_object], namespace="default")

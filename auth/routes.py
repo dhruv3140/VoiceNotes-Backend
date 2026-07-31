@@ -158,7 +158,7 @@ async def send_mobile_otp(data: MobileOtpRequest, db: Session = Depends(get_db))
 
     return {
         "success": True,
-        "message": "OTP sent successfully. Check backend terminal for OTP."
+        "message": "OTP sent successfully."
     }
 
 

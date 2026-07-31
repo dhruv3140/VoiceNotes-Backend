@@ -1,0 +1,6 @@
+streamlit
+streamlit-mic-recorder
+google-generativeai
+pinecone
+python-dotenv
+requests

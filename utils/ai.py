@@ -22,8 +22,9 @@ def generate_tags(transcript):
 
 def get_embedding(transcript):
     response = genai.embed_content(
-        model="gemini-embedding-2",
+       model="models/embedding-001",
         content=transcript,
-        task_type="retrieval_document"
+        task_type="retrieval_document",
+        output_dimensionality=384
     )
     return response['embedding']

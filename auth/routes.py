@@ -68,7 +68,7 @@ def find_user_by_identifier(identifier: str, db: Session):
 @router.post("/register")
 async def register(data: UserRegister, db: Session = Depends(get_db)):
     otp = str(random.randint(100000, 999999))
-    expiry = datetime.now(IST) + timedelta(minutes=5)
+    # expiry = datetime.now(IST) + timedelta(minutes=5)
 
     user = db.query(User).filter(User.email == data.email).first()
 
@@ -91,7 +91,7 @@ async def register(data: UserRegister, db: Session = Depends(get_db)):
         user.is_email_verified = "false"
 
     user.email_otp = otp
-    user.email_otp_expires_at = expiry
+    # user.email_otp_expires_at = expiry
 
     db.commit()
 
@@ -129,7 +129,7 @@ def login(user: UserLogin, db: Session = Depends(get_db)):
 @router.post("/mobile/send-otp")
 async def send_mobile_otp(data: MobileOtpRequest, db: Session = Depends(get_db)):
     otp = str(random.randint(100000, 999999))
-    expiry = datetime.now(IST) + timedelta(minutes=5)
+    # expiry = datetime.now(IST) + timedelta(minutes=5)
 
     user = db.query(User).filter(User.mobile == data.mobile).first()
 
@@ -150,7 +150,8 @@ async def send_mobile_otp(data: MobileOtpRequest, db: Session = Depends(get_db))
         user.is_mobile_verified = "false"
 
     user.otp_code = otp
-    user.otp_expires_at = expiry
+    # 
+    # user.otp_expires_at = expiry
 
     db.commit()
 
@@ -165,7 +166,7 @@ async def send_mobile_otp(data: MobileOtpRequest, db: Session = Depends(get_db))
 @router.post("/email/send-otp")
 async def send_email_register_otp(data: EmailOtpRequest, db: Session = Depends(get_db)):
     otp = str(random.randint(100000, 999999))
-    expiry = datetime.now(IST) + timedelta(minutes=5)
+    # expiry = datetime.now(IST) + timedelta(minutes=5)
 
     user = db.query(User).filter(User.email == data.email).first()
 
@@ -181,7 +182,8 @@ async def send_email_register_otp(data: EmailOtpRequest, db: Session = Depends(g
         user.name = data.name
 
     user.email_otp = otp
-    user.email_otp_expires_at = expiry
+    # 
+    # user.email_otp_expires_at = expiry
 
     db.commit()
 
@@ -361,10 +363,10 @@ async def send_login_otp(data: LoginOtpRequest, db: Session = Depends(get_db)):
         raise HTTPException(status_code=404, detail="User not found. Please register first.")
 
     otp = str(random.randint(100000, 999999))
-    expiry = datetime.utcnow() + timedelta(minutes=5)
+    #expiry = datetime.utcnow() + timedelta(minutes=5)
 
     user.otp_code = otp
-    user.otp_expires_at = expiry
+    #user.otp_expires_at = expiry
 
     db.commit()
 

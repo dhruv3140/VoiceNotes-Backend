@@ -40,6 +40,18 @@ def get_all_notes(user_id, limit=100):
     )
     return response.matches
 
+def search_notes(query_text, user_id, top_k=3):
+    """Performs search using dummy vector since we are storing direct metadata notes."""
+    dummy_vector = [0.1] * 384
+    search_results = index.query(
+        vector=dummy_vector,
+        top_k=top_k,
+        include_metadata=True,
+        filter={"user_id": {"$eq": user_id}},
+        namespace="default"
+    )
+    return search_results.matches
+
 def delete_note_from_db(note_id):
     index.delete(ids=[note_id], namespace="default")
 

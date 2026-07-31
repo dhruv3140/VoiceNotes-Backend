@@ -1,15 +1,14 @@
+import os
 import warnings
 warnings.filterwarnings("ignore", category=FutureWarning)
-from sentence_transformers import SentenceTransformer
-import os
 from dotenv import load_dotenv
 import google.generativeai as genai
 
 load_dotenv()
 genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
-embedding_model = SentenceTransformer("all-MiniLM-L6-v2")
+
 def generate_tags(transcript):
-    model = genai.GenerativeModel('gemini-3.1-flash-lite') 
+    model = genai.GenerativeModel('gemini-1.5-flash') 
     prompt = f"""
     You are a strict tagging assistant. Read the voice note (which may be in English or Hinglish). 
     Output EXACTLY one or two unique relevant tag. Your response must ONLY be a comma-separated list. 
@@ -22,5 +21,9 @@ def generate_tags(transcript):
     return tags_list
 
 def get_embedding(transcript):
-    vector = embedding_model.encode(transcript).tolist()
-    return vector
+    response = genai.embed_content(
+        model="models/text-embedding-004",
+        content=transcript,
+        task_type="retrieval_document"
+    )
+    return response['embedding']

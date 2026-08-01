@@ -310,7 +310,7 @@ def forgot_password(data: ForgotPasswordRequest, db: Session = Depends(get_db)):
     otp = str(random.randint(100000, 999999))
 
     user.reset_otp = otp
-    user.reset_otp_expires_at = datetime.utcnow() + timedelta(minutes=5)
+    #user.reset_otp_expires_at = datetime.utcnow() + timedelta(minutes=5)
 
     db.commit()
 
@@ -404,8 +404,8 @@ def verify_login_otp(data: VerifyLoginOtpRequest, db: Session = Depends(get_db))
     if not user.otp_code or user.otp_code != data.otp:
         raise HTTPException(status_code=400, detail="Invalid OTP")
 
-    if not user.otp_expires_at or user.otp_expires_at < datetime.utcnow():
-        raise HTTPException(status_code=400, detail="OTP expired")
+    # if not user.otp_expires_at or user.otp_expires_at < datetime.utcnow():
+    #     raise HTTPException(status_code=400, detail="OTP expired")
 
     user.otp_code = None
     user.otp_expires_at = None

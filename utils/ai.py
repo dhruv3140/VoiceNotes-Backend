@@ -2,11 +2,10 @@ import os
 import warnings
 warnings.filterwarnings("ignore", category=FutureWarning)
 from dotenv import load_dotenv
-import google.generativeai as genai
+from groq import Groq
 
 load_dotenv()
-genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
-
+groq_client = Groq(api_key=os.getenv("GROQ_API_KEY"))
 def generate_tags(transcript):
     model = genai.GenerativeModel('gemini-2.5-flash') 
     prompt = f"""
@@ -15,7 +14,17 @@ def generate_tags(transcript):
     No intro, no outro, no punctuation at the end.
     Voice Note: {transcript}
     """
-    response = model.generate_content(prompt)
-    raw_tags_string = response.text.strip()
+    response = groq_client.chat.completions.create(
+        model="llama-3.3-70b-versatile",
+        messages=[
+            {
+                "role": "user",
+                "content": prompt
+            }
+        ],
+        temperature=0.2,
+        max_tokens=200
+    )
+    raw_tags_string = response.choices[0].message.content.strip()
     tags_list = [tag.strip() for tag in raw_tags_string.split(",")]
     return tags_list

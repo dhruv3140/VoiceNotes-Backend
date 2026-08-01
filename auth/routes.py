@@ -301,7 +301,7 @@ def google_auth(data: GoogleLoginRequest,  db: Session = Depends(get_db)):
 
 
 @router.post("/forgot-password")
-def forgot_password(data: ForgotPasswordRequest, db: Session = Depends(get_db)):
+async def forgot_password(data: ForgotPasswordRequest, db: Session = Depends(get_db)):
     user = db.query(User).filter(User.email == data.email).first()
 
     if not user:
@@ -315,7 +315,7 @@ def forgot_password(data: ForgotPasswordRequest, db: Session = Depends(get_db)):
     db.commit()
 
     try:
-        send_email_otp(data.email, otp)
+        await send_email_otp(data.email, otp)
     except Exception as e:
         raise HTTPException(
             status_code=500,
@@ -375,7 +375,7 @@ async def send_login_otp(data: LoginOtpRequest, db: Session = Depends(get_db)):
             raise HTTPException(status_code=400, detail="Email not verified")
 
         try:
-            send_email_otp(user.email, otp)
+            await send_email_otp(user.email, otp)
         except Exception as e:
             raise HTTPException(
                 status_code=500,

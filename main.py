@@ -45,16 +45,16 @@ def home():
     return {"message": "Backend running"}
 
 @app.post("/notes/text")
-def create_text_note(note: TextNote, current_user: User = Depends(get_current_user)):
+async def create_text_note(note: TextNote, current_user: User = Depends(get_current_user)):
     text = note.text.strip()
-    tags = generate_tags(text)
+    tags = await generate_tags(text)
     note_id = str(uuid.uuid4())
 
     save_note(note_id, text, tags, current_user.id, note.folder_id, note.folder_name)
     return {"success": True, "id": note_id}
 
 @app.get("/notes")
-def get_notes(current_user: User = Depends(get_current_user)):
+async def get_notes(current_user: User = Depends(get_current_user)):
     notes = get_all_notes(current_user.id)
     clean_notes = []
 
@@ -77,7 +77,7 @@ async def create_audio_note(
 ):
     audio_bytes = await file.read()
     transcript = transcribe_audio(audio_bytes)
-    tags = generate_tags(transcript)
+    tags = await generate_tags(transcript)
     note_id = str(uuid.uuid4())
 
     # Vector parameter hata diya gaya hai
@@ -130,13 +130,13 @@ def search_note(query: SearchQuery, current_user: User = Depends(get_current_use
     }
 
 @app.put("/notes/{note_id}")
-def update_note(
+async def update_note(
     note_id: str,
     note: UpdateNote,
     current_user: User = Depends(get_current_user)
 ):
     text = note.text.strip()
-    tags = generate_tags(text)
+    tags = await generate_tags(text)
 
     # Vector parameter hata diya gaya hai
     update_note_in_db(

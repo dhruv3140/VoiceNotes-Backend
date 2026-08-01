@@ -6,7 +6,7 @@ from groq import Groq
 
 load_dotenv()
 groq_client = Groq(api_key=os.getenv("GROQ_API_KEY"))
-def generate_tags(transcript):
+async def generate_tags(transcript):
     # model = genai.GenerativeModel('gemini-2.5-flash') 
     prompt = f"""
     You are a strict tagging assistant. Read the voice note (which may be in English or Hinglish). 

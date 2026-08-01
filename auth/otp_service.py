@@ -28,7 +28,7 @@ async def send_email_otp(to_email: str, otp: str):
             """
         }
         
-        response = resend.Emails.send(params)
+        response = await resend.Emails.send(params)
         print("Email sent successfully via Resend:", response)
     except Exception as e:
         print("Resend Email sending failed:", e)

@@ -10,7 +10,8 @@ from sqlalchemy.orm import Session
 from auth.security import get_current_user
 from auth.models import User
 from utils.audio import transcribe_audio
-from utils.ai import generate_tags  # get_embedding hata diya gaya hai
+from utils.ai import generate_tags  
+from groq import Groq
 from utils.database import save_note, get_all_notes, search_notes, delete_note_from_db, update_note_in_db
 from utils.sms_service import send_sms_via_gateway
 

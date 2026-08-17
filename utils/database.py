@@ -14,10 +14,9 @@ index = get_pinecone_index()
 
 def save_note(note_id, transcript, tags, user_id, folder_id=None, folder_name="General"):
     now = datetime.now(IST).isoformat()
-    # Hum vector ki jagah dummy vector ya direct metadata upsert karenge
     storage_object = {
         "id": note_id,
-        "values": [0.1] * 384,  # Dummy stable vector taaki Pinecone index khush rahe
+        "values": [0.1] * 384, 
         "metadata": {
             "transcript": transcript,
             "tags": tags,
@@ -31,7 +30,6 @@ def save_note(note_id, transcript, tags, user_id, folder_id=None, folder_name="G
     index.upsert(vectors=[storage_object], namespace="default")
 
 def get_all_notes(user_id, limit=100):
-    # Dummy vector se query karne par user ke saare notes metadata ke sath mil jayenge
     dummy_vector = [0.1] * 384
     response = index.query(
         vector=dummy_vector,

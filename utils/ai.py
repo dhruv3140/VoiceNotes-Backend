@@ -7,7 +7,6 @@ from groq import Groq
 load_dotenv()
 groq_client = Groq(api_key=os.getenv("GROQ_API_KEY"))
 async def generate_tags(transcript):
-    # model = genai.GenerativeModel('gemini-2.5-flash') 
     prompt = f"""
     You are a strict tagging assistant. Read the voice note (which may be in English or Hinglish). 
     Output EXACTLY one or two unique relevant tag. Your response must ONLY be a comma-separated list. 

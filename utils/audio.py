@@ -20,7 +20,6 @@ def transcribe_audio(audio_bytes):
             end_time = min((i + 1) * chunk_length_ms, audio_length_ms)
             chunk = audio[start_time:end_time]
             
-            # Compress this specific chunk into MP3 bytes
             chunk_buffer = BytesIO()
             chunk.export(chunk_buffer, format="wav", bitrate="64k")
             chunk_bytes = chunk_buffer.getvalue()
@@ -36,7 +35,7 @@ def transcribe_audio(audio_bytes):
             else:
                 print(f"Failed to transcribe chunk {i}: {response.text}")
                 
-        # Merge all chunks with a space
+
         final_text = " ".join(full_transcript)
         return final_text if final_text else "Audio processing completed, but no text was captured."
         

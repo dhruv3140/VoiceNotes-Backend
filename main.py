@@ -81,7 +81,6 @@ async def create_audio_note(
     tags = await generate_tags(transcript)
     note_id = str(uuid.uuid4())
 
-    # Vector parameter hata diya gaya hai
     save_note(note_id, transcript, tags, current_user.id, 0, "General")
 
     return {
@@ -90,34 +89,13 @@ async def create_audio_note(
         "transcript": transcript
     }
 
-# @app.get("/notes")
-# def get_notes(current_user: User = Depends(get_current_user)):
-#     notes = get_all_notes(current_user.id)
-#     clean_notes = []
-
-#     for note in notes:
-#         # Handle both Pinecone match objects and search hit dictionaries safely
-#         note_id = getattr(note, 'id', getattr(note, '_id', note.get('id', note.get('_id'))))
-#         metadata = getattr(note, 'metadata', note.get('fields', note))
-        
-#         clean_notes.append({
-#             "id": note_id,
-#             "metadata": metadata
-#         })
-
-#     return {
-#         "success": True,
-#         "notes": clean_notes
-#     }
-
 @app.post("/notes/search")
 def search_note(query: SearchQuery, current_user: User = Depends(get_current_user)):
-    # Query text seedha search_notes function ko pass kiya gaya hai
     results = search_notes(query.query, current_user.id)
     clean_results = []
 
     for r in results:
-        score = getattr(r, 'score', 1.0)  # Safe score fallback agar record hit mein score na ho
+        score = getattr(r, 'score', 1.0) 
         if score >= 0.3:
             clean_results.append({
                 "id": getattr(r, 'id', getattr(r, '_id', None)),
@@ -139,7 +117,6 @@ async def update_note(
     text = note.text.strip()
     tags = await generate_tags(text)
 
-    # Vector parameter hata diya gaya hai
     update_note_in_db(
         note_id,
         text,

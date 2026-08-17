@@ -42,7 +42,6 @@ def verify_password(plain_password: str, hashed_password: str):
     except Exception:
         return False
 
-# Backward compatibility alias if needed elsewhere
 def hash_password(password: str):
     return get_password_hash(password)
 

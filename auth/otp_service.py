@@ -17,7 +17,7 @@ async def send_email_otp(to_email: str, otp: str):
     
     payload = {
         "sender": {
-            "name": "Smart Notes",
+            "name": "VoxNote AI",
             "email": "dhruvsinghal166@gmail.com" 
         },
         "to": [
@@ -25,10 +25,10 @@ async def send_email_otp(to_email: str, otp: str):
                 "email": to_email
             }
         ],
-        "subject": "Your Smart Notes OTP",
+        "subject": "Your VoxNote AI OTP",
         "htmlContent": f"""
             <div style="font-family: Arial, sans-serif; padding: 20px;">
-                <h2>Welcome to Smart Notes!</h2>
+                <h2>Welcome to VoxNote AI !</h2>
                 <p>Your OTP for verification is:</p>
                 <h1 style="color: #4F46E5; letter-spacing: 2px;">{otp}</h1>
                 <p>This OTP is valid for 5 minutes.</p>
@@ -61,7 +61,7 @@ async def send_sms_otp(mobile: str, otp: str, name: str = "User"):
     else:
         formatted_mobile = cleaned_mobile
 
-    message_text = f" Hi {name} , Your Smart Notes OTP is: {otp}"
+    message_text = f" Hi {name} , Your VoxNote AI OTP is: {otp}"
     print(f"SMS OTP for {formatted_mobile}: {otp}")
 
     try:

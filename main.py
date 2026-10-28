@@ -9,11 +9,14 @@ from fastapi import Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from auth.security import get_current_user
 from auth.models import User
-from utils.audio import transcribe_audio
+from utils.audio import transcribe_audio, TranscriptionError
+from starlette.concurrency import run_in_threadpool
 from utils.ai import generate_tags  
 from groq import Groq
-from utils.database import save_note, get_all_notes, search_notes, delete_note_from_db, update_note_in_db
+from utils.database import user_owns_note, save_note, get_all_notes, search_notes, delete_note_from_db, update_note_in_db
 from utils.sms_service import send_sms_via_gateway
+
+MAX_AUDIO_BYTES = 25 * 1024 * 1024
 
 app = FastAPI()
 
@@ -83,8 +86,17 @@ async def create_audio_note(
     file: UploadFile = File(...),
     current_user: User = Depends(get_current_user)
 ):
-    audio_bytes = await file.read()
-    transcript = transcribe_audio(audio_bytes)
+    audio_bytes = await file.read(MAX_AUDIO_BYTES + 1)
+    if len(audio_bytes) > MAX_AUDIO_BYTES:
+        raise HTTPException(status_code=413, detail="Audio file is too large.")
+    if not audio_bytes:
+        raise HTTPException(status_code=400, detail="Audio file is empty.")
+
+    try:
+        transcript = await run_in_threadpool(transcribe_audio, audio_bytes)
+    except TranscriptionError as e:
+        raise HTTPException(status_code=502, detail=str(e))
+
     tags = await generate_tags(transcript)
     note_id = str(uuid.uuid4())
 
@@ -121,10 +133,13 @@ async def update_note(
     note: UpdateNote,
     current_user: User = Depends(get_current_user)
 ):
+    if not user_owns_note(note_id, current_user.id):
+        raise HTTPException(status_code=404, detail="Note not found")
+
     text = note.text.strip()
     tags = await generate_tags(text)
 
-    update_note_in_db(
+    updated = update_note_in_db(
         note_id,
         text,
         tags,
@@ -132,10 +147,13 @@ async def update_note(
         note.folder_id,
         note.folder_name
     )
+    if not updated:
+        raise HTTPException(status_code=404, detail="Note not found")
 
     return {"success": True, "message": "Note updated"}
 
 @app.delete("/notes/{note_id}")
 def delete_note(note_id: str, current_user: User = Depends(get_current_user)):
-    delete_note_from_db(note_id)
+    if not delete_note_from_db(note_id, current_user.id):
+        raise HTTPException(status_code=404, detail="Note not found")
     return {"success": True, "message": "Note deleted"}

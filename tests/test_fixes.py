@@ -1,0 +1,134 @@
+import pytest
+from fastapi.testclient import TestClient
+
+import main
+import utils.ai
+import utils.audio
+from auth import rate_limit
+from auth.database import Base, engine, SessionLocal
+from auth.models import User
+from auth.security import create_access_token
+from conftest import FAKE_INDEX
+
+
+async def fake_tags(text):
+    return ["t"]
+
+main.generate_tags = fake_tags
+
+
+@pytest.fixture(autouse=True)
+def clean():
+    Base.metadata.drop_all(bind=engine)
+    Base.metadata.create_all(bind=engine)
+    FAKE_INDEX.store.clear()
+    rate_limit.reset_all()
+    sent = []
+
+    async def fake_email(to, otp): sent.append(("email", to, otp))
+    async def fake_sms(mobile, otp, name="User"): sent.append(("sms", mobile, otp))
+    import auth.routes as r
+    r.send_email_otp = fake_email
+    r.send_sms_otp = fake_sms
+    yield sent
+
+
+def make_user(email):
+    db = SessionLocal()
+    u = User(name=email, email=email, is_email_verified="true", auth_provider="email_otp")
+    db.add(u); db.commit(); db.refresh(u)
+    uid = u.id
+    db.close()
+    return uid, {"Authorization": "Bearer " + create_access_token({"user_id": uid, "email": email, "mobile": None})}
+
+
+client = TestClient(main.app)
+
+
+def test_cross_user_update_delete_blocked_and_owner_allowed():
+    a_id, a = make_user("a@test.dev")
+    b_id, b = make_user("b@test.dev")
+    r = client.post("/notes/text", json={"text": "alice secret note"}, headers=a)
+    nid = r.json()["id"]
+    before = dict(FAKE_INDEX.store[nid])
+
+    assert client.put(f"/notes/{nid}", json={"text": "hacked"}, headers=b).status_code == 404
+    assert client.delete(f"/notes/{nid}", headers=b).status_code == 404
+    assert FAKE_INDEX.store[nid] == before  # untouched
+
+    assert client.put(f"/notes/{nid}", json={"text": "alice edited"}, headers=a).status_code == 200
+    assert FAKE_INDEX.store[nid]["transcript"] == "alice edited"
+    assert FAKE_INDEX.store[nid]["created_at"] == before["created_at"]
+    assert FAKE_INDEX.store[nid]["user_id"] == float(a_id)
+    assert client.put("/notes/missing-id", json={"text": "x"}, headers=a).status_code == 404
+    assert client.delete(f"/notes/{nid}", headers=a).status_code == 200
+    assert nid not in FAKE_INDEX.store
+
+
+def test_search_is_scoped_and_uses_query():
+    _, a = make_user("a@test.dev")
+    _, b = make_user("b@test.dev")
+    client.post("/notes/text", json={"text": "buy milk and eggs"}, headers=a)
+    client.post("/notes/text", json={"text": "call the dentist tomorrow"}, headers=a)
+    client.post("/notes/text", json={"text": "milk secret of bob"}, headers=b)
+    res = client.post("/notes/search", json={"query": "milk"}, headers=a).json()["results"]
+    assert len(res) == 1 and "eggs" in res[0]["metadata"]["transcript"]
+    assert client.post("/notes/search", json={"query": "zebra"}, headers=a).json()["results"] == []
+    assert client.post("/notes/search", json={"query": "  "}, headers=a).json()["results"] == []
+
+
+def test_more_than_100_notes_listed():
+    _, a = make_user("a@test.dev")
+    for i in range(130):
+        client.post("/notes/text", json={"text": f"note {i}"}, headers=a)
+    assert len(client.get("/notes", headers=a).json()["notes"]) == 130
+
+
+def test_failed_transcription_not_saved(monkeypatch):
+    _, a = make_user("a@test.dev")
+
+    def boom(_):
+        raise utils.audio.TranscriptionError("Transcription failed. Please retry.")
+    monkeypatch.setattr(main, "transcribe_audio", boom)
+    r = client.post("/notes/audio", files={"file": ("a.webm", b"123", "audio/webm")}, headers=a)
+    assert r.status_code == 502
+    assert FAKE_INDEX.store == {}
+
+    monkeypatch.setattr(main, "transcribe_audio", lambda b: "hello world")
+    r = client.post("/notes/audio", files={"file": ("a.webm", b"123", "audio/webm")}, headers=a)
+    assert r.status_code == 200 and r.json()["transcript"] == "hello world"
+    assert len(FAKE_INDEX.store) == 1
+
+
+def test_otp_lockout_after_failures(clean):
+    uid, _ = make_user("v@test.dev")
+    assert client.post("/auth/login/send-otp", json={"identifier": "v@test.dev"}).status_code == 200
+    otp = clean[-1][2]
+    wrong = "000000" if otp != "000000" else "111111"
+    for _ in range(5):
+        assert client.post("/auth/login/verify-otp", json={"identifier": "v@test.dev", "otp": wrong}).status_code == 400
+    # correct OTP no longer works after lockout
+    r = client.post("/auth/login/verify-otp", json={"identifier": "v@test.dev", "otp": otp})
+    assert r.status_code == 429
+    # and the stored OTP was cleared
+    db = SessionLocal(); u = db.get(User, uid); assert u.otp_code is None; db.close()
+
+
+def test_otp_correct_works_and_send_throttled(clean):
+    make_user("v@test.dev")
+    assert client.post("/auth/login/send-otp", json={"identifier": "v@test.dev"}).status_code == 200
+    assert client.post("/auth/login/send-otp", json={"identifier": "v@test.dev"}).status_code == 429
+    otp = clean[-1][2]
+    assert len(otp) == 6 and otp.isdigit()
+    r = client.post("/auth/login/verify-otp", json={"identifier": "v@test.dev", "otp": otp})
+    assert r.status_code == 200 and "access_token" in r.json()
+
+
+def test_reset_password_requires_valid_otp_and_locks(clean):
+    make_user("v@test.dev")
+    assert client.post("/auth/forgot-password", json={"email": "v@test.dev"}).status_code == 200
+    otp = clean[-1][2]
+    wrong = "000000" if otp != "000000" else "111111"
+    for _ in range(5):
+        assert client.post("/auth/reset-password", json={"email": "v@test.dev", "otp": wrong, "new_password": "Newpass123"}).status_code == 400
+    assert client.post("/auth/reset-password", json={"email": "v@test.dev", "otp": otp, "new_password": "Newpass123"}).status_code == 429

@@ -1,5 +1,4 @@
 import os
-import random
 from datetime import datetime, timedelta, timezone
 
 from dotenv import load_dotenv
@@ -9,6 +8,7 @@ from google.oauth2 import id_token
 from sqlalchemy.orm import Session
 
 from .database import get_db
+from . import rate_limit
 from .models import User, Folder
 from .otp_service import send_email_otp, send_sms_otp
 from .schemas import (
@@ -52,7 +52,7 @@ def otp_expiry():
 
 
 def otp_is_valid(otp, expires_at, submitted_otp):
-    if not otp or otp != submitted_otp or expires_at is None:
+    if not rate_limit.otps_match(otp, submitted_otp) or expires_at is None:
         return False
 
     # Handle both timezone-aware and timezone-naive database datetimes.
@@ -64,6 +64,22 @@ def otp_is_valid(otp, expires_at, submitted_otp):
         now = now.astimezone(expires_at.tzinfo)
 
     return expires_at > now
+
+
+
+def ensure_otp(db, user, otp_attr, exp_attr, submitted, detail):
+    """Check an OTP with attempt limiting. Locks out and clears the OTP after repeated failures."""
+    key = f"verify:{user.id}"
+    rate_limit.check_verify_allowed(key)
+
+    if not otp_is_valid(getattr(user, otp_attr), getattr(user, exp_attr), submitted):
+        if rate_limit.record_verify_failure(key):
+            setattr(user, otp_attr, None)
+            setattr(user, exp_attr, None)
+            db.commit()
+        raise HTTPException(status_code=400, detail=detail)
+
+    rate_limit.record_verify_success(key)
 
 
 def create_user_response(user: User):
@@ -97,7 +113,8 @@ def find_user_by_identifier(identifier: str, db: Session):
 
 @router.post("/register")
 async def register(data: UserRegister, db: Session = Depends(get_db)):
-    otp = str(random.randint(100000, 999999))
+    rate_limit.check_send_allowed(f"send:{data.email}")
+    otp = str(rate_limit.generate_otp())
 
     user = db.query(User).filter(User.email == data.email).first()
 
@@ -166,7 +183,8 @@ async def send_mobile_otp(
     data: MobileOtpRequest,
     db: Session = Depends(get_db),
 ):
-    otp = str(random.randint(100000, 999999))
+    rate_limit.check_send_allowed(f"send:{data.mobile}")
+    otp = str(rate_limit.generate_otp())
 
     user = db.query(User).filter(User.mobile == data.mobile).first()
 
@@ -213,7 +231,8 @@ async def send_email_register_otp(
     data: EmailOtpRequest,
     db: Session = Depends(get_db),
 ):
-    otp = str(random.randint(100000, 999999))
+    rate_limit.check_send_allowed(f"send:{data.email}")
+    otp = str(rate_limit.generate_otp())
 
     user = db.query(User).filter(User.email == data.email).first()
 
@@ -257,15 +276,8 @@ async def verify_email_register_otp(
     if not user:
         raise HTTPException(status_code=404, detail="Email not found")
 
-    if not otp_is_valid(
-        user.email_otp,
-        user.email_otp_expires_at,
-        data.otp,
-    ):
-        raise HTTPException(
-            status_code=400,
-            detail="Invalid or expired OTP. Please request a new OTP.",
-        )
+    ensure_otp(db, user, "email_otp", "email_otp_expires_at", data.otp,
+        "Invalid or expired OTP. Please request a new OTP.")
 
     user.email_otp = None
     user.email_otp_expires_at = None
@@ -288,15 +300,8 @@ def verify_mobile_otp(
     if not user:
         raise HTTPException(status_code=404, detail="Mobile number not found")
 
-    if not otp_is_valid(
-        user.otp_code,
-        user.otp_expires_at,
-        data.otp,
-    ):
-        raise HTTPException(
-            status_code=400,
-            detail="Invalid or expired OTP. Please request a new OTP.",
-        )
+    ensure_otp(db, user, "otp_code", "otp_expires_at", data.otp,
+        "Invalid or expired OTP. Please request a new OTP.")
 
     user.otp_code = None
     user.otp_expires_at = None
@@ -364,12 +369,13 @@ async def forgot_password(
     data: ForgotPasswordRequest,
     db: Session = Depends(get_db),
 ):
+    rate_limit.check_send_allowed(f"send:{data.email}")
     user = db.query(User).filter(User.email == data.email).first()
 
     if not user:
         raise HTTPException(status_code=404, detail="Email not found")
 
-    otp = str(random.randint(100000, 999999))
+    otp = str(rate_limit.generate_otp())
 
     user.reset_otp = otp
     user.reset_otp_expires_at = otp_expiry()
@@ -441,7 +447,8 @@ async def send_login_otp(
         if user.is_mobile_verified != "true":
             raise HTTPException(status_code=400, detail="Mobile not verified")
 
-    otp = str(random.randint(100000, 999999))
+    rate_limit.check_send_allowed(f"send:{user.id}")
+    otp = str(rate_limit.generate_otp())
 
     user.otp_code = otp
     user.otp_expires_at = otp_expiry()
@@ -475,15 +482,8 @@ def verify_login_otp(
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
 
-    if not otp_is_valid(
-        user.otp_code,
-        user.otp_expires_at,
-        data.otp,
-    ):
-        raise HTTPException(
-            status_code=400,
-            detail="Invalid or expired OTP. Please request a new OTP.",
-        )
+    ensure_otp(db, user, "otp_code", "otp_expires_at", data.otp,
+        "Invalid or expired OTP. Please request a new OTP.")
 
     user.otp_code = None
     user.otp_expires_at = None
@@ -504,15 +504,8 @@ def reset_password(
     if not user:
         raise HTTPException(status_code=404, detail="Email not found")
 
-    if not otp_is_valid(
-        user.reset_otp,
-        user.reset_otp_expires_at,
-        data.otp,
-    ):
-        raise HTTPException(
-            status_code=400,
-            detail="Invalid or expired reset OTP. Please request a new OTP.",
-        )
+    ensure_otp(db, user, "reset_otp", "reset_otp_expires_at", data.otp,
+        "Invalid or expired reset OTP. Please request a new OTP.")
 
     user.hashed_password = hash_password(data.new_password)
     user.reset_otp = None

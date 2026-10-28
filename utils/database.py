@@ -179,7 +179,7 @@ def search_notes(query_text, user_id, top_k=20):
         mode = "semantic"
     except Exception as e:
         if SEMANTIC_ENABLED:
-            print(f"Semantic search unavailable, using keyword search: {type(e).__name__}")
+            print(f"Semantic search unavailable, using keyword search: {type(e).__name__}: {str(e)[:300]}", flush=True)
 
     scored = []
     for n in notes:

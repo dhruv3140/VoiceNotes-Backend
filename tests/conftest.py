@@ -17,6 +17,7 @@ class FakeIndex:
 
     def __init__(self):
         self.store = {}
+        self.values = {}
 
     @staticmethod
     def _norm(meta):
@@ -25,11 +26,12 @@ class FakeIndex:
     def upsert(self, vectors, namespace=None):
         for v in vectors:
             self.store[v["id"]] = self._norm(v["metadata"])
+            self.values[v["id"]] = list(v["values"])
 
-    def query(self, vector, top_k, include_metadata, filter, namespace=None):
+    def query(self, vector, top_k, include_metadata, filter, namespace=None, include_values=False):
         uid = filter["user_id"]["$eq"]
         matches = [
-            types.SimpleNamespace(id=i, score=1.0, metadata=dict(m))
+            types.SimpleNamespace(id=i, score=1.0, metadata=dict(m), values=(list(self.values.get(i, [])) if include_values else []))
             for i, m in self.store.items() if m.get("user_id") == float(uid)
         ]
         return types.SimpleNamespace(matches=matches[:top_k])
@@ -42,6 +44,7 @@ class FakeIndex:
     def delete(self, ids, namespace=None):
         for i in ids:
             self.store.pop(i, None)
+            self.values.pop(i, None)
 
 
 FAKE_INDEX = FakeIndex()

@@ -1,5 +1,6 @@
 from pinecone import Pinecone
 import os
+import math
 import re
 from types import SimpleNamespace
 from dotenv import load_dotenv
@@ -8,38 +9,88 @@ from datetime import datetime, timezone, timedelta
 
 IST = timezone(timedelta(hours=5, minutes=30))
 
+pc = Pinecone(api_key=os.getenv("PINECONE_API_KEY"))
+
+
 def get_pinecone_index():
-    pc = Pinecone(api_key=os.getenv("PINECONE_API_KEY"))
     return pc.Index(os.getenv("PINECONE_INDEX_NAME"))
 
 index = get_pinecone_index()
 
+# Embeddings come from Pinecone Inference (same provider that already stores the
+# notes). llama-text-embed-v2 supports 384 dims, matching the existing index.
+EMBED_MODEL = "llama-text-embed-v2"
+EMBED_DIM = 384
+EMBED_TAG = f"{EMBED_MODEL}-{EMBED_DIM}"
+EMBED_MAX_CHARS = 6000
+EMBED_BATCH = 90
+BACKFILL_PER_SEARCH = 90
+SEMANTIC_MIN_SCORE = 0.30
+
+
+def embed_texts(texts, input_type):
+    """Returns a list of 384-float vectors, or raises if the embedding call fails."""
+    out = []
+    for i in range(0, len(texts), EMBED_BATCH):
+        batch = [str(t or " ")[:EMBED_MAX_CHARS] or " " for t in texts[i:i + EMBED_BATCH]]
+        res = pc.inference.embed(
+            model=EMBED_MODEL,
+            inputs=batch,
+            parameters={"input_type": input_type, "truncate": "END", "dimension": EMBED_DIM},
+        )
+        for item in res:
+            vals = getattr(item, "values", None)
+            if vals is None and isinstance(item, dict):
+                vals = item.get("values")
+            vals = [float(x) for x in vals]
+            if len(vals) != EMBED_DIM:
+                raise ValueError("Unexpected embedding size")
+            out.append(vals)
+    if len(out) != len(texts):
+        raise ValueError("Embedding count mismatch")
+    return out
+
+
+def _note_text(transcript, tags, folder_name=None):
+    tag_text = ", ".join(str(t) for t in (tags or [])) if not isinstance(tags, str) else tags
+    return f"{transcript}\nTags: {tag_text}".strip()
+
+
+def _vector_for_note(transcript, tags, folder_name=None):
+    """Returns (vector, embedding_tag). Falls back to the placeholder vector if embedding fails."""
+    try:
+        return embed_texts([_note_text(transcript, tags, folder_name)], "passage")[0], EMBED_TAG
+    except Exception as e:
+        print(f"Embedding failed, saving without embedding: {type(e).__name__}")
+        return [0.1] * EMBED_DIM, None
+
 def save_note(note_id, transcript, tags, user_id, folder_id=None, folder_name="General"):
     now = datetime.now(IST).isoformat()
-    storage_object = {
-        "id": note_id,
-        "values": [0.1] * 384, 
-        "metadata": {
-            "transcript": transcript,
-            "tags": tags,
-            "user_id": user_id,
-            "folder_id": folder_id if folder_id else 0,
-            "folder_name": folder_name or "General",
-            "created_at": now,
-            "updated_at": now
-        }
+    vector, tag = _vector_for_note(transcript, tags, folder_name)
+    metadata = {
+        "transcript": transcript,
+        "tags": tags,
+        "user_id": user_id,
+        "folder_id": folder_id if folder_id else 0,
+        "folder_name": folder_name or "General",
+        "created_at": now,
+        "updated_at": now
     }
+    if tag:
+        metadata["embedding"] = tag
+    storage_object = {"id": note_id, "values": vector, "metadata": metadata}
     index.upsert(vectors=[storage_object], namespace="default")
 
 MAX_NOTES = 1000  # Pinecone's top_k limit when metadata is included
 
 
-def get_all_notes(user_id, limit=MAX_NOTES):
+def get_all_notes(user_id, limit=MAX_NOTES, include_values=False):
     dummy_vector = [0.1] * 384
     response = index.query(
         vector=dummy_vector,
         top_k=min(limit, MAX_NOTES),
         include_metadata=True,
+        include_values=include_values,
         filter={"user_id": {"$eq": user_id}},
         namespace="default"
     )
@@ -50,36 +101,85 @@ def _tokens(text):
     return re.findall(r"\w+", str(text or "").lower())
 
 
-def search_notes(query_text, user_id, top_k=20):
-    """Keyword search over the user's own notes (transcript, tags, folder).
+def _cosine(a, b):
+    dot = sum(x * y for x, y in zip(a, b))
+    na = math.sqrt(sum(x * x for x in a))
+    nb = math.sqrt(sum(y * y for y in b))
+    return dot / (na * nb) if na and nb else 0.0
 
-    Notes are stored with a constant placeholder vector, so there is no
-    embedding-based search. This ranks by how many query words appear.
-    """
+
+def _keyword_score(query_tokens, phrase, meta):
+    tags = meta.get("tags") or []
+    if isinstance(tags, str):
+        tags = [tags]
+    haystack = " ".join([
+        str(meta.get("transcript", "")),
+        " ".join(str(t) for t in tags),
+        str(meta.get("folder_name", "")),
+    ]).lower()
+    words = set(_tokens(haystack))
+    hits = sum(1 for t in query_tokens if t in words or t in haystack)
+    if hits == 0:
+        return 0.0
+    frac = hits / len(query_tokens)
+    return 0.3 + 0.6 * frac + (0.1 if phrase in haystack else 0)
+
+
+def _backfill_embeddings(notes):
+    """Embeds notes saved before embeddings existed. Only the vector and an
+    'embedding' tag change; all metadata is preserved. Returns {note_id: vector}."""
+    todo = [n for n in notes if (getattr(n, "metadata", None) or {}).get("embedding") != EMBED_TAG]
+    todo = todo[:BACKFILL_PER_SEARCH]
+    if not todo:
+        return {}
+    vectors = embed_texts(
+        [_note_text(n.metadata.get("transcript", ""), n.metadata.get("tags")) for n in todo],
+        "passage",
+    )
+    done = {}
+    upserts = []
+    for n, vec in zip(todo, vectors):
+        meta = dict(n.metadata)
+        meta["embedding"] = EMBED_TAG
+        upserts.append({"id": n.id, "values": vec, "metadata": meta})
+        done[n.id] = vec
+    index.upsert(vectors=upserts, namespace="default")
+    return done
+
+
+def search_notes(query_text, user_id, top_k=20):
+    """Meaning-based search over the user's own notes, with keyword matching as a
+    complement. If embeddings are unavailable it falls back to keyword search."""
     query_tokens = _tokens(query_text)
     if not query_tokens:
         return []
-
     phrase = " ".join(query_tokens)
-    scored = []
-    for match in get_all_notes(user_id):
-        meta = getattr(match, "metadata", None) or {}
-        tags = meta.get("tags") or []
-        if isinstance(tags, str):
-            tags = [tags]
-        haystack = " ".join([
-            str(meta.get("transcript", "")),
-            " ".join(str(t) for t in tags),
-            str(meta.get("folder_name", "")),
-        ]).lower()
-        words = set(_tokens(haystack))
 
-        hits = sum(1 for t in query_tokens if t in words or t in haystack)
-        if hits == 0:
-            continue
-        frac = hits / len(query_tokens)
-        score = 0.3 + 0.6 * frac + (0.1 if phrase in haystack else 0)
-        scored.append(SimpleNamespace(id=match.id, score=round(score, 3), metadata=meta))
+    notes = get_all_notes(user_id, include_values=True)
+
+    semantic = {}
+    try:
+        fresh = _backfill_embeddings(notes)
+        query_vec = embed_texts([str(query_text)], "query")[0]
+        for n in notes:
+            meta = getattr(n, "metadata", None) or {}
+            vec = fresh.get(n.id)
+            if vec is None and meta.get("embedding") == EMBED_TAG:
+                vec = list(getattr(n, "values", None) or [])
+            if vec and len(vec) == EMBED_DIM:
+                semantic[n.id] = _cosine(query_vec, vec)
+    except Exception as e:
+        print(f"Semantic search unavailable, using keyword search: {type(e).__name__}")
+
+    scored = []
+    for n in notes:
+        meta = getattr(n, "metadata", None) or {}
+        kw = _keyword_score(query_tokens, phrase, meta)
+        sem = semantic.get(n.id, 0.0)
+        sem = sem if sem >= SEMANTIC_MIN_SCORE else 0.0
+        score = max(kw, sem)
+        if score > 0:
+            scored.append(SimpleNamespace(id=n.id, score=round(score, 3), metadata=meta))
 
     scored.sort(key=lambda r: r.score, reverse=True)
     return scored[:top_k]
@@ -124,18 +224,18 @@ def update_note_in_db(note_id, new_transcript, new_tags, user_id, folder_id=None
         return False
 
     now = datetime.now(IST).isoformat()
-    storage_object = {
-        "id": note_id,
-        "values": [0.1] * 384,
-        "metadata": {
-            "transcript": new_transcript,
-            "tags": new_tags,
-            "user_id": owner,
-            "folder_id": folder_id if folder_id else 0,
-            "folder_name": folder_name or "General",
-            "created_at": old_meta.get("created_at", now),
-            "updated_at": now
-        }
+    vector, tag = _vector_for_note(new_transcript, new_tags, folder_name)
+    metadata = {
+        "transcript": new_transcript,
+        "tags": new_tags,
+        "user_id": owner,
+        "folder_id": folder_id if folder_id else 0,
+        "folder_name": folder_name or "General",
+        "created_at": old_meta.get("created_at", now),
+        "updated_at": now
     }
+    if tag:
+        metadata["embedding"] = tag
+    storage_object = {"id": note_id, "values": vector, "metadata": metadata}
     index.upsert(vectors=[storage_object], namespace="default")
     return True

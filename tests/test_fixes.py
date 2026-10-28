@@ -2,6 +2,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 import main
+import utils.database as dbm
 import utils.ai
 import utils.audio
 from auth import rate_limit
@@ -132,3 +133,63 @@ def test_reset_password_requires_valid_otp_and_locks(clean):
     for _ in range(5):
         assert client.post("/auth/reset-password", json={"email": "v@test.dev", "otp": wrong, "new_password": "Newpass123"}).status_code == 400
     assert client.post("/auth/reset-password", json={"email": "v@test.dev", "otp": otp, "new_password": "Newpass123"}).status_code == 429
+
+
+CONCEPTS = {
+    0: {"milk", "eggs", "groceries", "shopping", "bread", "kirana"},
+    1: {"dentist", "doctor", "appointment", "clinic", "checkup"},
+    2: {"startup", "idea", "business", "product"},
+}
+
+
+def fake_embed(texts, input_type):
+    out = []
+    for t in texts:
+        words = set(dbm._tokens(t))
+        v = [0.0] * dbm.EMBED_DIM
+        for axis, ws in CONCEPTS.items():
+            v[axis] = float(len(words & ws))
+        v[100] = 0.05  # keep vectors non-zero
+        out.append(v)
+    return out
+
+
+def test_semantic_search_finds_meaning_scoped_and_backfills(monkeypatch):
+    _, a = make_user("a@test.dev")
+    _, b = make_user("b@test.dev")
+    # legacy notes: saved without embeddings (embedding service down)
+    monkeypatch.setattr(dbm, "embed_texts", lambda *a, **k: (_ for _ in ()).throw(RuntimeError("down")))
+    n1 = client.post("/notes/text", json={"text": "pick up bread and eggs"}, headers=a).json()["id"]
+    n2 = client.post("/notes/text", json={"text": "visit clinic for checkup"}, headers=a).json()["id"]
+    client.post("/notes/text", json={"text": "groceries list of bob"}, headers=b)
+    assert "embedding" not in FAKE_INDEX.store[n1]
+
+    # embeddings available now: search by meaning, not by shared words
+    monkeypatch.setattr(dbm, "embed_texts", fake_embed)
+    res = client.post("/notes/search", json={"query": "shopping"}, headers=a).json()["results"]
+    assert [r["id"] for r in res] == [n1]  # meaning match, no shared word, not bob's, not the clinic note
+    # backfill stored vector + tag, metadata kept
+    assert FAKE_INDEX.store[n1]["embedding"] == dbm.EMBED_TAG
+    assert FAKE_INDEX.store[n1]["transcript"] == "pick up bread and eggs"
+    assert FAKE_INDEX.store[n1]["user_id"] == FAKE_INDEX.store[n2]["user_id"]
+    res = client.post("/notes/search", json={"query": "doctor"}, headers=a).json()["results"]
+    assert [r["id"] for r in res] == [n2]
+    assert client.post("/notes/search", json={"query": "startup"}, headers=a).json()["results"] == []
+
+
+def test_search_falls_back_to_keywords_when_embedding_down(monkeypatch):
+    _, a = make_user("a@test.dev")
+    monkeypatch.setattr(dbm, "embed_texts", lambda *a, **k: (_ for _ in ()).throw(RuntimeError("down")))
+    client.post("/notes/text", json={"text": "call the dentist tomorrow"}, headers=a)
+    res = client.post("/notes/search", json={"query": "dentist"}, headers=a)
+    assert res.status_code == 200 and len(res.json()["results"]) == 1
+
+
+def test_new_and_edited_notes_get_embeddings(monkeypatch):
+    _, a = make_user("a@test.dev")
+    monkeypatch.setattr(dbm, "embed_texts", fake_embed)
+    nid = client.post("/notes/text", json={"text": "bread"}, headers=a).json()["id"]
+    assert FAKE_INDEX.store[nid]["embedding"] == dbm.EMBED_TAG
+    assert len(FAKE_INDEX.values[nid]) == dbm.EMBED_DIM and FAKE_INDEX.values[nid][0] == 1.0
+    client.put(f"/notes/{nid}", json={"text": "dentist"}, headers=a)
+    assert FAKE_INDEX.values[nid][1] == 1.0

@@ -25,7 +25,7 @@ EMBED_TAG = f"{EMBED_MODEL}-{EMBED_DIM}"
 EMBED_MAX_CHARS = 6000
 EMBED_BATCH = 90
 BACKFILL_PER_SEARCH = 90
-SEMANTIC_MIN_SCORE = 0.30
+SEMANTIC_MIN_SCORE = 0.15
 # Off until the Pinecone account, index (dimension/metric) and embedding quota
 # are confirmed. Set SEMANTIC_SEARCH_ENABLED=true in the server environment to turn on.
 SEMANTIC_ENABLED = os.getenv("SEMANTIC_SEARCH_ENABLED", "false").strip().lower() == "true"
@@ -177,7 +177,6 @@ def search_notes(query_text, user_id, top_k=20):
             if vec and len(vec) == EMBED_DIM:
                 semantic[n.id] = _cosine(query_vec, vec)
         mode = "semantic"
-        print(f"semantic debug: notes={len(notes)} vectors={len(semantic)} top={sorted([round(v,3) for v in semantic.values()], reverse=True)[:5]}", flush=True)
     except Exception as e:
         if SEMANTIC_ENABLED:
             print(f"Semantic search unavailable, using keyword search: {type(e).__name__}: {str(e)[:300]}", flush=True)

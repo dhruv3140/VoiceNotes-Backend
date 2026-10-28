@@ -116,7 +116,7 @@ def search_note(query: SearchQuery, current_user: User = Depends(get_current_use
 
     for r in results:
         score = getattr(r, 'score', 1.0) 
-        if score >= 0.3:
+        if score >= 0.15:
             clean_results.append({
                 "id": getattr(r, 'id', getattr(r, '_id', None)),
                 "score": score,

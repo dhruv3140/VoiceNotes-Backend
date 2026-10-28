@@ -102,8 +102,17 @@ def get_all_notes(user_id, limit=MAX_NOTES, include_values=False):
     return response.matches
 
 
+_STOP = {"a","an","the","and","or","of","to","in","on","at","for","is","it","my","me","i","about","with","was","are","be","this","that"}
+
+
 def _tokens(text):
     return re.findall(r"\w+", str(text or "").lower())
+
+
+def _query_tokens(text):
+    toks = _tokens(text)
+    kept = [t for t in toks if t not in _STOP]
+    return kept or toks
 
 
 def _cosine(a, b):
@@ -123,7 +132,7 @@ def _keyword_score(query_tokens, phrase, meta):
         str(meta.get("folder_name", "")),
     ]).lower()
     words = set(_tokens(haystack))
-    hits = sum(1 for t in query_tokens if t in words or t in haystack)
+    hits = sum(1 for t in query_tokens if t in words or (len(t) >= 4 and t in haystack))
     if hits == 0:
         return 0.0
     frac = hits / len(query_tokens)
@@ -155,7 +164,7 @@ def _backfill_embeddings(notes):
 def search_notes(query_text, user_id, top_k=20):
     """Searches the user's own notes. Returns (results, mode) where mode is
     "semantic" (meaning + keywords) or "keyword" (embeddings off or unavailable)."""
-    query_tokens = _tokens(query_text)
+    query_tokens = _query_tokens(query_text)
     if not query_tokens:
         return [], "keyword"
     phrase = " ".join(query_tokens)

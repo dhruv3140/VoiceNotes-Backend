@@ -26,6 +26,9 @@ EMBED_MAX_CHARS = 6000
 EMBED_BATCH = 90
 BACKFILL_PER_SEARCH = 90
 SEMANTIC_MIN_SCORE = 0.30
+# Off until the Pinecone account, index (dimension/metric) and embedding quota
+# are confirmed. Set SEMANTIC_SEARCH_ENABLED=true in the server environment to turn on.
+SEMANTIC_ENABLED = os.getenv("SEMANTIC_SEARCH_ENABLED", "false").strip().lower() == "true"
 
 
 def embed_texts(texts, input_type):
@@ -58,6 +61,8 @@ def _note_text(transcript, tags, folder_name=None):
 
 def _vector_for_note(transcript, tags, folder_name=None):
     """Returns (vector, embedding_tag). Falls back to the placeholder vector if embedding fails."""
+    if not SEMANTIC_ENABLED:
+        return [0.1] * EMBED_DIM, None
     try:
         return embed_texts([_note_text(transcript, tags, folder_name)], "passage")[0], EMBED_TAG
     except Exception as e:
@@ -148,17 +153,20 @@ def _backfill_embeddings(notes):
 
 
 def search_notes(query_text, user_id, top_k=20):
-    """Meaning-based search over the user's own notes, with keyword matching as a
-    complement. If embeddings are unavailable it falls back to keyword search."""
+    """Searches the user's own notes. Returns (results, mode) where mode is
+    "semantic" (meaning + keywords) or "keyword" (embeddings off or unavailable)."""
     query_tokens = _tokens(query_text)
     if not query_tokens:
-        return []
+        return [], "keyword"
     phrase = " ".join(query_tokens)
 
     notes = get_all_notes(user_id, include_values=True)
 
     semantic = {}
+    mode = "keyword"
     try:
+        if not SEMANTIC_ENABLED:
+            raise RuntimeError("semantic search disabled")
         fresh = _backfill_embeddings(notes)
         query_vec = embed_texts([str(query_text)], "query")[0]
         for n in notes:
@@ -168,8 +176,10 @@ def search_notes(query_text, user_id, top_k=20):
                 vec = list(getattr(n, "values", None) or [])
             if vec and len(vec) == EMBED_DIM:
                 semantic[n.id] = _cosine(query_vec, vec)
+        mode = "semantic"
     except Exception as e:
-        print(f"Semantic search unavailable, using keyword search: {type(e).__name__}")
+        if SEMANTIC_ENABLED:
+            print(f"Semantic search unavailable, using keyword search: {type(e).__name__}")
 
     scored = []
     for n in notes:
@@ -182,7 +192,7 @@ def search_notes(query_text, user_id, top_k=20):
             scored.append(SimpleNamespace(id=n.id, score=round(score, 3), metadata=meta))
 
     scored.sort(key=lambda r: r.score, reverse=True)
-    return scored[:top_k]
+    return scored[:top_k], mode
 
 
 def get_note_owner(note_id):

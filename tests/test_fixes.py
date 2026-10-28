@@ -158,6 +158,7 @@ def test_semantic_search_finds_meaning_scoped_and_backfills(monkeypatch):
     _, a = make_user("a@test.dev")
     _, b = make_user("b@test.dev")
     # legacy notes: saved without embeddings (embedding service down)
+    monkeypatch.setattr(dbm, "SEMANTIC_ENABLED", True)
     monkeypatch.setattr(dbm, "embed_texts", lambda *a, **k: (_ for _ in ()).throw(RuntimeError("down")))
     n1 = client.post("/notes/text", json={"text": "pick up bread and eggs"}, headers=a).json()["id"]
     n2 = client.post("/notes/text", json={"text": "visit clinic for checkup"}, headers=a).json()["id"]
@@ -166,6 +167,7 @@ def test_semantic_search_finds_meaning_scoped_and_backfills(monkeypatch):
 
     # embeddings available now: search by meaning, not by shared words
     monkeypatch.setattr(dbm, "embed_texts", fake_embed)
+    monkeypatch.setattr(dbm, "SEMANTIC_ENABLED", True)
     res = client.post("/notes/search", json={"query": "shopping"}, headers=a).json()["results"]
     assert [r["id"] for r in res] == [n1]  # meaning match, no shared word, not bob's, not the clinic note
     # backfill stored vector + tag, metadata kept
@@ -188,8 +190,32 @@ def test_search_falls_back_to_keywords_when_embedding_down(monkeypatch):
 def test_new_and_edited_notes_get_embeddings(monkeypatch):
     _, a = make_user("a@test.dev")
     monkeypatch.setattr(dbm, "embed_texts", fake_embed)
+    monkeypatch.setattr(dbm, "SEMANTIC_ENABLED", True)
     nid = client.post("/notes/text", json={"text": "bread"}, headers=a).json()["id"]
     assert FAKE_INDEX.store[nid]["embedding"] == dbm.EMBED_TAG
     assert len(FAKE_INDEX.values[nid]) == dbm.EMBED_DIM and FAKE_INDEX.values[nid][0] == 1.0
     client.put(f"/notes/{nid}", json={"text": "dentist"}, headers=a)
     assert FAKE_INDEX.values[nid][1] == 1.0
+
+
+def test_semantic_off_by_default_never_calls_embedding(monkeypatch):
+    _, a = make_user("a@test.dev")
+    calls = []
+    monkeypatch.setattr(dbm, "embed_texts", lambda *a, **k: calls.append(1) or [[0.0] * dbm.EMBED_DIM])
+    assert dbm.SEMANTIC_ENABLED is False
+    nid = client.post("/notes/text", json={"text": "bread and milk"}, headers=a).json()["id"]
+    r = client.post("/notes/search", json={"query": "milk"}, headers=a).json()
+    assert r["search_mode"] == "keyword" and len(r["results"]) == 1
+    assert calls == [] and "embedding" not in FAKE_INDEX.store[nid]
+
+
+def test_search_mode_and_truncation_flags(monkeypatch):
+    _, a = make_user("a@test.dev")
+    monkeypatch.setattr(dbm, "SEMANTIC_ENABLED", True)
+    monkeypatch.setattr(dbm, "embed_texts", fake_embed)
+    client.post("/notes/text", json={"text": "bread"}, headers=a)
+    assert client.post("/notes/search", json={"query": "shopping"}, headers=a).json()["search_mode"] == "semantic"
+    monkeypatch.setattr(dbm, "embed_texts", lambda *a, **k: (_ for _ in ()).throw(RuntimeError("down")))
+    assert client.post("/notes/search", json={"query": "bread"}, headers=a).json()["search_mode"] == "keyword"
+    monkeypatch.setattr(main, "MAX_NOTES", 1)
+    assert client.get("/notes", headers=a).json()["truncated"] is True

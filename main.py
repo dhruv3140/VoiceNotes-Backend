@@ -13,7 +13,7 @@ from utils.audio import transcribe_audio, TranscriptionError
 from starlette.concurrency import run_in_threadpool
 from utils.ai import generate_tags  
 from groq import Groq
-from utils.database import user_owns_note, save_note, get_all_notes, search_notes, delete_note_from_db, update_note_in_db
+from utils.database import MAX_NOTES, user_owns_note, save_note, get_all_notes, search_notes, delete_note_from_db, update_note_in_db
 from utils.sms_service import send_sms_via_gateway
 
 MAX_AUDIO_BYTES = 25 * 1024 * 1024
@@ -77,7 +77,8 @@ async def get_notes(current_user: User = Depends(get_current_user)):
 
     return {
         "success": True,
-        "notes": clean_notes
+        "notes": clean_notes,
+        "truncated": len(clean_notes) >= MAX_NOTES
     }
 
 
@@ -110,7 +111,7 @@ async def create_audio_note(
 
 @app.post("/notes/search")
 def search_note(query: SearchQuery, current_user: User = Depends(get_current_user)):
-    results = search_notes(query.query, current_user.id)
+    results, mode = search_notes(query.query, current_user.id)
     clean_results = []
 
     for r in results:
@@ -124,6 +125,7 @@ def search_note(query: SearchQuery, current_user: User = Depends(get_current_use
 
     return {
         "success": True,
+        "search_mode": mode,
         "results": clean_results
     }
 
